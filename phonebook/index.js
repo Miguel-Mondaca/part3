@@ -1,7 +1,9 @@
+require('dotenv').config()
 const express = require('express')
 const app = express()
 const morgan = require('morgan')
 const cors = require('cors')
+const Person = require('./models/person')
 
 app.use(cors())
 app.use(express.json())
@@ -17,91 +19,118 @@ morgan.token('body', (request) => {
 
 app.use(morgan(':method :url :status - :response-time ms :body'))
 
-let persons = [
-    {
-        "id": 1,
-        "name": "Arto Hellas",
-        "number": "040-123456"
-    },
-    {
-        "id": 2,
-        "name": "Ada Lovelace",
-        "number": "39-44-5323523"
-    },
-    {
-        "id": 3,
-        "name": "Dan Abramov",
-        "number": "12-43-234345"
-    },
-    {
-        "id": 4,
-        "name": "Mary Poppendieck",
-        "number": "39-23-6423122"
-    }
-]
-
-app.get('/', (request, response) => {
-    response.send('<h1>Hello World!</h1>')
-})
-
-app.get('/info', (request, response) => {
-    const dateTime = new Date().toString()
-    const infoTime = `<p>Phonebook has info for ${persons.length} people</p><p>${dateTime}</p>`
-
-    response.send(infoTime)
-})
-
-app.get('/api/persons', (request, response) => {
-    response.json(persons);
-})
-
-app.get('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    const person = persons.find(person => person.id === id)
-
-    if (person) {
-        response.json(person)
-    } else {
-        response.status(404).json({ error: `The Person with ID '${id}' was not found.` })
-    }
-})
-
-app.post('/api/persons', (request, response) => {
-    const person = request.body
-    if (!person.name || !person.number) {
-        return response.status(400).json({
-            error: 'Both name and number fields are mandatory.'
+app.get('/api/persons', (request, response, next) => {
+    Person.find({}).then(persons => {
+        response.json(persons)
+    })
+        .catch(error => {
+            console.error('Error retrieving persons list', error.message)
+            next(error)
         })
-    }
+})
 
-    const similarName = persons.some(similarName => similarName.name === person.name)
-    if (similarName) {
-        return response.status(400).json({
-            error: `The name '${person.name}' is already in the phonebook.`
+app.get('/api/persons/:id', (request, response, next) => {
+    const id = request.params.id;
+
+    Person.findById(id).then(person => {
+        if (person) {
+            response.json(person)
+        } else {
+            response.status(404).end()
+        }
+    })
+        .catch(error => {
+            console.error('Error retrieving person by ID', error.message)
+            next(error)
         })
-    }
-
-    const id = Math.floor(Math.random() * 90000) + 10000
-    person.id = id
-
-    persons = persons.concat(person)
-    response.json(person)
 })
 
-app.delete('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    const person = persons.find(person => person.id === id)
+app.post('/api/persons', (request, response, next) => {
+    const body = request.body
 
-    if (!person) {
-        return response.status(404).json({ error: `Person with ID ${id} not found.` })
+    if (!body.name || !body.number) {
+        return response.status(400).json({ error: 'Both name and number are required' })
     }
 
-    persons = persons.filter(person => person.id !== id)
-    response.status(204).end()
+    const person = new Person({
+        name: body.name,
+        number: body.number,
+    })
+
+    person.save()
+        .then(savedPerson => {
+            response.json(savedPerson)
+        })
+        .catch(error => {
+            console.error('Error adding person', error.message)
+            next(error)
+        })
 })
 
+app.put('/api/persons/:id', (request, response, next) => {
+    const { id } = request.params
+    const { name, number } = request.body
 
-const PORT = process.env.PORT || 3001
+    Person.findByIdAndUpdate(
+        id,
+        { name, number },
+        { new: true, runValidators: true, content: 'query' }).then(updatedPerson => {
+            if (updatedPerson) {
+                response.json(updatedPerson)
+            } else {
+                response.status(404).json({ error: 'Person not found' })
+            }
+        })
+        .catch(error => {
+            console.error('Error updating person', error.message)
+            next(error)
+        })
+})
+
+app.get('/info', (request, response, next) => {
+    Person.countDocuments({})
+        .then(count => {
+            const dateTime = new Date().toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            })
+            const infoTime = `<p>Phonebook has info for ${count} people</p><p>Last request date: ${dateTime}</p>`
+            response.send(infoTime)
+        })
+        .catch(error => {
+            console.error('Error fetching info data', error.message)
+            next(error)
+        })
+})
+
+app.delete('/api/persons/:id', (request, response, next) => {
+    Person.findByIdAndDelete(request.params.id)
+        .then(result => {
+            response.status(204).end()
+        })
+        .catch(error => {
+            console.error('Error deleting person', error.message)
+            next(error)
+        })
+})
+
+const errorHandler = (error, request, response, next) => {
+    console.error(error.message)
+
+    if (error.name === 'CastError') {
+        return response.status(400).send({ error: 'malformatted id' })
+    } else if (error.name === 'ValidationError') {
+        return response.status(400).json({ error: error.message })
+    }
+
+    next(error)
+}
+
+app.use(errorHandler)
+
+const PORT = process.env.PORT
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`)
 })

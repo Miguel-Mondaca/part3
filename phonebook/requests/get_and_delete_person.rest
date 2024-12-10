@@ -1,0 +1,11 @@
+##### GET Full list of persons
+GET http://localhost:3001/api/persons/
+
+###### GET unique person by ID
+GET http://localhost:3001/api/persons/example-id
+
+##### DELETE person (must provide unique ID)
+DELETE http://localhost:3001/api/persons/example-id
+
+###### GET count of people and request time
+GET http://localhost:3001/info
